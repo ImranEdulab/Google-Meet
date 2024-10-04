@@ -1,16 +1,14 @@
-const dayjs = require("dayjs");
 const { Router } = require("express");
 const { google } = require("googleapis")
-const { v4: uuidv4 } = require('uuid');
 const fs = require("fs");
-const path = require("path");
-const { calendar } = require("googleapis/build/src/apis/calendar");
+const sgMail = require("@sendgrid/mail");
+const { createGoogleCalendarEvent } = require("../Controller/GoogleMeet.controller");
+const dayjs = require("dayjs");
 
 require("dotenv").config()
 
-const APIKEY = process.env.API_KEY;
-
 const GoogleMeetRoutes = Router()
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 const oauth2Client = new google.auth.OAuth2(
     process.env.Client_ID,
@@ -31,63 +29,39 @@ GoogleMeetRoutes.get("/google", (req, res) => {
 GoogleMeetRoutes.get("/google/redirect", async (req, res) => {
     try {
         const { tokens } = await oauth2Client.getToken(req.query.code)
-        // let tokens = await token.tokens.access_token
         await oauth2Client.setCredentials(tokens);
         fs.writeFileSync("token.json", JSON.stringify(tokens));
-        // const ans = oauth2Client.credentials
-        // console.log('oauth2Client', oauth2Client.credentials);
-
-        // console.log("ans----->", ans)
         res.send({ message: "Successfull" })
     } catch (error) {
         res.status(500).send(error)
     }
 })
 
-const TOKEN_PATH = process.env.TOKEN_PATH
-
 GoogleMeetRoutes.post("/invites", async (req, res) => {
-    const tokenPath = `${TOKEN_PATH}`;
-    const token = JSON.parse(fs.readFileSync(tokenPath));
-    // const tokens = await token.tokens.access_token
-    // const auth = await tokens;
-    // console.log("auth", await oauth2Client.getAccessToken(auth))
-
-    oauth2Client.setCredentials(token)
-
-    const calendar = await google.calendar({ version: 'v3', auth: oauth2Client });
-
     const { summary, description, attendees } = req.body;
 
+    const result = await createGoogleCalendarEvent({ summary, description, attendees });
+    const isoStringStart = result.data.start.dateTime;
+    const endTime = result.data.end.dateTime
 
-    const event = {
-        summary,
-        description,
-        start: {
-            dateTime: dayjs(new Date()).add(1, "day").toISOString(),
-            timeZone: 'Asia/Kolkata',
-        },
-        end: {
-            dateTime: dayjs(new Date()).add(1, "day").add(1, "hour").toISOString(),
-            timeZone: 'Asia/Kolkata',
-        },
-        attendees: attendees.map(email => ({ email })),
-        conferenceData: {
-            createRequest: {
-                requestId: uuidv4(),
-                conferenceSolutionKey: {
-                    type: "hangoutsMeet",
-                },
-            },
-        },
-    }
+    const startDate = dayjs(isoStringStart).format('HH:mm');
+    const endDate = dayjs(endTime).format('HH:mm');
+    const date = dayjs(isoStringStart).format('DD-MM-YYYY')
 
-    const result = await calendar.events.insert({
-        calendarId: 'primary',
-        resource: event,
-        conferenceDataVersion: 1
-    })
-    res.send("Calendar Event Created and Send Successfully")
+    const msg = {
+        to: attendees,
+        from: 'imran@edulab.in',
+        subject: `You're invited to: ${summary}`,
+        html: `<strong>You have been invited to the following event:</strong><br><br>
+            <strong>Event:</strong> ${summary}<br>
+            <strong>Description:</strong> ${description}<br>
+            <strong>Join the meeting here:</strong> <a href="${result.data.hangoutLink}">${result.data.hangoutLink}</a><br>
+            <strong>Date:</strong> ${date}<br>
+            <strong>Time:</strong> ${startDate} - ${endDate}`,
+    };
+
+    await sgMail.send(msg);
+    res.status(200).send("Calendar Event Created and Send Successfully",)
 
 });
 
