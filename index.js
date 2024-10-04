@@ -1,5 +1,6 @@
 const express = require("express")
 const cors = require("cors");
+const { GoogleMeetRoutes } = require("./Routes/GoogleMeet.routes");
 
 require("dotenv").config();
 
@@ -12,6 +13,8 @@ const PORT = process.env.PORT
 app.get("/", (req, res) => {
     res.send("Welcome");
 });
+
+app.use("/meet", GoogleMeetRoutes)
 
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
